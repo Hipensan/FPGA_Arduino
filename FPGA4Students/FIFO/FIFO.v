@@ -233,5 +233,19 @@ endmodule
 
 
 
+/*############################################
 
+		Practicing for FIFO memory
+			Date : 2024/03/07
+
+FIFO doesn't have address
+circular buffer structure
+
+
+additional reference url : https://metastable.tistory.com/43
+
+EMPTY = wptr == rptr
+FULL = (wptr[SIZE-1:0] == rptr[SIZE-1:0]) & 
+		(wptr[SIZE] != rptr[SIZE])
+############################################*/
 
