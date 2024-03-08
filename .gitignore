@@ -1,0 +1,4 @@
+# ignore ppt or related files
+*.ppt
+*.pptx
+*.thmx
