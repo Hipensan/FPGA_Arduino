@@ -1,246 +1,127 @@
-module MIPS(
+module MIPS_16b(
 	input i_Clk,
 	input i_Rst
 	);
 
 
+/////////////////////////
+//// PC module
+
 wire [15:0] cur_PC;
-
+wire [15:0] BranchOffset;
+wire [15:0] JumpOffset;
+assign BranchOffset = Inst[6:0];
+assign JumpOffset = Inst[12:0];
 PC PC0(
-	.i_Clk(i_Clk),
-	.i_Rst(i_Rst),
-	.o_PC(cur_PC)
+	.i_Clk			(i_Clk),
+	.i_Rst			(i_Rst),
+	.i_Branch      	(Branch),
+	.i_BranchOffset	(BranchOffset),
+	.i_JumpOffset  	(JumpOffset),
+	.i_Jump        	(Jump),
+	.o_PC 			(cur_PC)
+	);
+
+/////////////////////////
+//// IMEM module
+
+wire [15:0] Inst;
+IMEM IM0(
+	.i_PC(cur_PC),
+	.o_Inst(Inst)
+	);
+
+/////////////////////////
+//// controller
+wire [2:0] Opcode;
+wire [3:0] Funct;
+assign Opcode = Inst[15:13];
+assign Funct = Inst[3:0];
+
+wire [1:0] RegDst;
+wire ALUSrc;			// 0 : Register value, 	1: immediate value
+wire [1:0] MemtoReg;	// 0 : Reg, 			1: Memory, 		2: JAL(but removed)
+wire RegWrite;			// 0 : Not WB, 			1: WB
+wire MemRead;			// 0 : Not Load, 		1: Load inst.
+wire MemWrite;			// 0 : Not Store, 		1: Store inst.
+wire Branch;			// 0 : Not Branch, 		1: Branch inst.
+wire [1:0] ALUOp;		// 0 : R-Type, 			1: BEQ, 		2: SLTI, 	3:ADDI, LW, SW
+wire Jump;				// 0 : Not Jump, 		1: Jump
+wire [2:0] ALUcnt;		// 0 : ADD, 			1: SUB, 		2: AND, 	3: OR, 			4: SLT
+control CON0(
+	.i_Opcode(Opcode), 	//Opcode(3bits)
+	.i_Funct(Funct),
+	.o_RegDst(RegDst),
+	.o_ALUSrc(ALUSrc),
+	.o_MemtoReg(MemtoReg),
+	.o_RegWrite(RegWrite),
+	.o_MemRead(MemRead),
+	.o_MemWrite(MemWrite),
+	.o_Branch(Branch),
+	.o_ALUOp(ALUOp),
+	.o_Jump(Jump),
+	.o_ALUcnt(ALUcnt)
 	);
 
 
+/////////////////////////
+//// Regfile module
 
+wire [2:0] Rs, Rt, Rd;
+wire REG_fWE;
+wire [15:0] REG_i_Data;
+wire [15:0] REG_o_Data1, REG_o_Data2;
+assign Rs = Inst[12:10];
+assign Rt = Inst[9:7];
+assign Rd = Inst[6:4];
+Regfile REG0(
+	.i_Rs(Rs),
+	.i_Rt(Rt),
+	.i_Rd(Rd),
+	.i_fWE(REG_fWE),
+	.i_Data(REG_i_Data),
+	.o_Data1(REG_o_Data1),
+	.o_Data2(REG_o_Data2)
+	);
 
-endmodule
+/////////////////////////
+//// ALU module
 
+wire [15:0] ALU_o_Data;
+wire [15:0] JumpAddr;
+wire [2:0] JumpOp;
+wire [15:0] ALU_o_PC;
+wire ALU_o_Branch;
 
-
-
-
-module PC(
-	input i_Clk,
-	input i_Rst,
-	output o_PC
+assign JumpAddr = Inst[12:0];
+assign JumpOp = Inst[15:13];
+ALU ALU0(
+	.i_ALUSrc(ALUSrc),
+	.i_ALUcnt(ALUcnt),	
+	.i_Data0(REG_o_Data1),
+	.i_Data1(REG_o_Data2), // or Immediate value, need selector(mux)
+	.o_Data(ALU_o_Data),
+	.i_Branch(Branch),
+	.i_Jump(Jump),
+	.i_PC(cur_PC),
+	.i_JumpAddr(JumpAddr),
+	.i_JumpOp(JumpOp),
+	.o_PC(ALU_o_PC),
+	.o_Branch(ALU_o_Branch)
 	);
 
 
-reg [15:0] r_PC;
+/////////////////////////
+//// DM module
 
-always@(posedge i_Clk, negedge i_Rst)
-	if(!i_Rst) begin
-		r_PC <= 0;		
-	end else begin
-		r_PC <= r_PC + 16'd2;
-	end
-
-assign o_PC = r_PC;
-
-endmodule
-
-
-
-
-
-
-module control(
-	input [2:0] i_Opcode, 	//Opcode(3bits)
-	output reg [1:0] o_RegDst,
-	output reg o_ALUSrc,
-	output reg [1:0] o_MemtoReg,
-	output reg o_RegWrite,
-	output reg o_MemRead,
-	output reg o_MemWrite,
-	output reg o_Branch,
-	output reg [1:0] o_ALUOp,
-	output reg o_Jump
-	);
-
-always@* begin
-	case(i_Opcode)
-		3'b000 : begin	//R-Type
-			o_RegDst	<= 2'b01;
-			o_ALUSrc	<= 0;
-			o_MemtoReg	<= 2'b00;
-			o_RegWrite	<= 1;
-			o_MemRead	<= 0;
-			o_MemWrite	<= 0;
-			o_Branch	<= 0;
-			o_ALUOp		<= 2'b00;
-			o_Jump		<= 0;
-		end
-		3'b001 : begin	//LW
-			o_RegDst	<= 2'b00;
-			o_ALUSrc	<= 1;
-			o_MemtoReg	<= 2'b01;
-			o_RegWrite	<= 1;
-			o_MemRead	<= 1;
-			o_MemWrite	<= 0;
-			o_Branch	<= 0;
-			o_ALUOp		<= 2'b11;
-			o_Jump		<= 0;
-		end
-		3'b010 : begin	//SW
-			o_RegDst	<= 2'b00;
-			o_ALUSrc	<= 1;
-			o_MemtoReg	<= 2'b00;
-			o_RegWrite	<= 0;
-			o_MemRead	<= 0;
-			o_MemWrite	<= 1;
-			o_Branch	<= 0;
-			o_ALUOp		<= 2'b11;
-			o_Jump		<= 0;
-		end
-		3'b011 : begin	//addi
-			o_RegDst	<= 2'b00;
-			o_ALUSrc	<= 1;
-			o_MemtoReg	<= 2'b00;
-			o_RegWrite	<= 1;
-			o_MemRead	<= 0;
-			o_MemWrite	<= 0;
-			o_Branch	<= 0;
-			o_ALUOp		<= 2'b11;
-			o_Jump		<= 0;
-		end
-		3'b100 : begin	//beq
-			o_RegDst	<= 2'b00;
-			o_ALUSrc	<= 0;
-			o_MemtoReg	<= 2'b00;
-			o_RegWrite	<= 0;
-			o_MemRead	<= 0;
-			o_MemWrite	<= 0;
-			o_Branch	<= 1;
-			o_ALUOp		<= 2'b01;
-			o_Jump		<= 0;
-		end
-		3'b101 : begin	//j
-			o_RegDst	<= 2'b00;
-			o_ALUSrc	<= 0;
-			o_MemtoReg	<= 2'b00;
-			o_RegWrite	<= 0;
-			o_MemRead	<= 0;
-			o_MemWrite	<= 0;
-			o_Branch	<= 0;
-			o_ALUOp		<= 2'b00;
-			o_Jump		<= 1;
-		end
-		3'b110 : begin	//jal
-			o_RegDst	<= 2'b10;
-			o_ALUSrc	<= 0;
-			o_MemtoReg	<= 2'b10;
-			o_RegWrite	<= 1;
-			o_MemRead	<= 0;
-			o_MemWrite	<= 0;
-			o_Branch	<= 0;
-			o_ALUOp		<= 2'b00;
-			o_Jump		<= 1;
-		end
-		3'b111 : begin	//slti
-			o_RegDst	<= 2'b00;
-			o_ALUSrc	<= 1;
-			o_MemtoReg	<= 2'b00;
-			o_RegWrite	<= 1;
-			o_MemRead	<= 0;
-			o_MemWrite	<= 0;
-			o_Branch	<= 0;
-			o_ALUOp		<= 2'b10;
-			o_Jump		<= 0;
-		end
-		default : begin
-			o_RegDst	<= 2'b00;
-			o_ALUSrc	<= 0;
-			o_MemtoReg	<= 2'b00;
-			o_RegWrite	<= 0;
-			o_MemRead	<= 0;
-			o_MemWrite	<= 0;
-			o_Branch	<= 0;
-			o_ALUOp		<= 2'b00;
-			o_Jump		<= 0;
-		end
-	endcase
-end
-
-endmodule
-
-
-
-
-
-module IMEM(
-	input [15:0] i_PC,
-	output [15:0] o_Inst
-	);
-
-reg [15:0] r_Inst[0:15];
-
-initial
-begin
-	r_Inst[0] = 16'b1000000110000000;  
-	r_Inst[1] = 16'b0010110010110010;  
-	r_Inst[2] = 16'b1101110001100111;  
-	r_Inst[3] = 16'b1101110111011001;  
-	r_Inst[4] = 16'b1111110110110001;  
-	r_Inst[5] = 16'b1100000001111011; 
-	r_Inst[6] = 16'b0000000000000000;  
-	r_Inst[7] = 16'b0000000000000000;  
-	r_Inst[8] = 16'b0000000000000000;  
-	r_Inst[9] = 16'b0000000000000000;  
-	r_Inst[10] = 16'b0000000000000000;  
-	r_Inst[11] = 16'b0000000000000000;  
-	r_Inst[12] = 16'b0000000000000000;  
-	r_Inst[13] = 16'b0000000000000000;  
-	r_Inst[14] = 16'b0000000000000000;  
-	r_Inst[15] = 16'b0000000000000000; 
-end
-
-assign o_Inst = r_Inst[i_PC >> 1];
-endmodule
-
-
-
-
-
-
-
-module Regfile(
-	input [2:0] i_Rs,
-	input [2:0] i_Rt,
-	input [2:0] i_Rd,
-	input i_fWE,
-	input [15:0] i_Data,
-	output [15:0] o_Data1,
-	output [15:0] o_Data2
-	);
-
-reg [15:0] r_Reg[0:7]; 	//16-bit registers, 8 ea(3-bit)
-
-integer i;
-initial
-begin
-	for(i = 0; i < 8; i = i+1) 
-		r_Reg[i] <= 0;	
-end
-
-always@* begin
-	if(i_fWE) begin
-		r_Reg[i_Rd] <= i_Data;
-	end
-end
-
-assign o_Data1 = r_Reg[i_Rs];
-assign o_Data2 = r_Reg[i_Rt];
-
-endmodule
-
-
-
-
-
-module ALU(
-
+wire [15:0] DM_i_Data;
+wire [15:0] DM_o_Data;
+DMEM DM0(
+	.i_Data(DM_i_Data),
+	.i_MemWrite(MemWrite),
+	.i_MemRead(MemRead),
+	.i_Addr(ALU_o_Data),
+	.o_Data(DM_o_Data)
 	);
 
 endmodule
@@ -252,21 +133,40 @@ endmodule
 
 
 
-module DMEM(
-
-	input i_MemWrite,
-	input i_MemRead,
-	
-	);
-
-parameter DMEM_MAX_LOG = 2**6-1;
-
-reg [15:0] r_Reg[0:DMEM_MAX_LOG];
 
 
 
 
-endmodule
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
